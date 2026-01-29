@@ -113,61 +113,32 @@ class WeatherWizard:
                 
                 if detection_result.hand_landmarks:
                     for hand_landmarks in detection_result.hand_landmarks:
-                        # Draw hand landmarks manually with OpenCV
-                        for landmark in hand_landmarks:
-                            x = int(landmark.x * self.width)
-                            y = int(landmark.y * self.height)
-                            cv2.circle(image, (x, y), 5, (0, 255, 0), -1)
                         
-                        # Draw connections between landmarks
-                        connections = [
-                            (0, 1), (1, 2), (2, 3), (3, 4),  # Thumb
-                            (0, 5), (5, 6), (6, 7), (7, 8),  # Index
-                            (0, 9), (9, 10), (10, 11), (11, 12),  # Middle
-                            (0, 13), (13, 14), (14, 15), (15, 16),  # Ring
-                            (0, 17), (17, 18), (18, 19), (19, 20),  # Pinky
-                            (5, 9), (9, 13), (13, 17)  # Palm
-                        ]
-                        for connection in connections:
-                            start_idx, end_idx = connection
-                            start = hand_landmarks[start_idx]
-                            end = hand_landmarks[end_idx]
-                            start_point = (int(start.x * self.width), int(start.y * self.height))
-                            end_point = (int(end.x * self.width), int(end.y * self.height))
-                            cv2.line(image, start_point, end_point, (0, 255, 0), 2)
-                        
-                        # Detect gesture
                         gesture_detected = self.gesture_detector.detect_gestures(hand_landmarks)
                         
-                        # Get finger tip position for particle placement (index finger tip is landmark 8)
                         index_tip = hand_landmarks[8]
                         x_pos = int(index_tip.x * self.width)
                         
-                        # Count fingers manually (excluding thumb for gesture detection)
                         fingers_count = 0
-                        if hand_landmarks[8].y < hand_landmarks[6].y:  # Index
+                        if hand_landmarks[8].y < hand_landmarks[6].y:  
                             fingers_count += 1
-                        if hand_landmarks[12].y < hand_landmarks[10].y:  # Middle
+                        if hand_landmarks[12].y < hand_landmarks[10].y:  
                             fingers_count += 1
-                        if hand_landmarks[16].y < hand_landmarks[14].y:  # Ring
+                        if hand_landmarks[16].y < hand_landmarks[14].y:  
                             fingers_count += 1
-                        if hand_landmarks[20].y < hand_landmarks[18].y:  # Little
+                        if hand_landmarks[20].y < hand_landmarks[18].y: 
                             fingers_count += 1
                             
-                        # Show finger count on screen for debugging
                         cv2.putText(image, f"Fingers: {fingers_count}", (10, 110), 
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
             
-            # Handle keyboard input for effects
             key = cv2.waitKey(1) & 0xFF
             
-            # Reset all effects first
             rain_active = False
             snow_active = False
             lightning_active = False
             particle_x = self.width // 2
             
-            # Process gesture - holding fingers activates the effect
             if gesture_detected == "LIGHTNING":
                 print("Activating LIGHTNING from gesture")
                 lightning_active = True
@@ -193,10 +164,8 @@ class WeatherWizard:
                     print("Activating RAIN from keyboard")
                     rain_active = True
             
-            if key == 27:  # ESC key always works
+            if key == 27:  
                 break
-            
-            # Update current effect
             if lightning_active:
                 self.current_effect = "LIGHTNING"
             elif snow_active:
@@ -206,10 +175,9 @@ class WeatherWizard:
             else:
                 self.current_effect = None
             
-            # Continuously generate particles for active effects
             if rain_active and len(self.particles) < self.max_particles:
                 # Create multiple rain particles across the screen width
-                for _ in range(5):  # Create 5 rain drops per frame
+                for _ in range(5):  
                     if len(self.particles) < self.max_particles:
                         x_pos_rain = random.randint(0, self.width)
                         self.particles.append(
@@ -217,18 +185,17 @@ class WeatherWizard:
             
             elif snow_active and len(self.particles) < self.max_particles:
                 # Create multiple snow particles across the screen width
-                for _ in range(3):  # Create 3 snowflakes per frame
+                for _ in range(3): 
                     if len(self.particles) < self.max_particles:
                         x_pos_snow = random.randint(0, self.width)
                         self.particles.append(
                             self.particle_system.create_particle("SNOW", x_pos_snow))
             
-            elif lightning_active and len(self.particles) < 5:  # Limit lightning
+            elif lightning_active and len(self.particles) < 5: 
                 x_pos_lightning = particle_x if particle_x else random.randint(self.width // 4, 3 * self.width // 4)
                 self.particles.append(
                     self.particle_system.create_particle("LIGHTNING", x_pos_lightning))
             
-            # Add text overlays
             if self.current_effect:
                 cv2.putText(image, f"Effect: {self.current_effect} (Active)", (10, 30), 
                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
@@ -236,7 +203,6 @@ class WeatherWizard:
                 cv2.putText(image, "No Effect Active", (10, 30), 
                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
             
-            # Show current gesture if detected
             if self.use_gestures and gesture_detected:
                 cv2.putText(image, f"Gesture: {gesture_detected}", (10, 70), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
@@ -244,7 +210,6 @@ class WeatherWizard:
             control_text = "Gestures: 1/2/3 fingers | Keys: 1/2/3 | ESC=Exit" if self.use_gestures else "Keys: 1=Lightning, 2=Snow, 3=Rain, ESC=Exit"
             cv2.putText(image, control_text, 
                        (10, self.height - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            
             self.update_particles(image)
             cv2.imshow('Weather Wizard', image)
         
@@ -322,6 +287,4 @@ class WeatherWizard:
         result = cv2.addWeighted(image, 1, overlay, 0.7, 0)
         image[:] = result[:]
         self.particles = new_particles
-
-
-                                    
+        
