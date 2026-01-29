@@ -1,0 +1,15 @@
+README.md
+setup.py
+src/app/__init__.py
+src/app/main.py
+src/app/core/__init__.py
+src/app/core/particle_system.py
+src/app/core/weather_wizard.py
+src/app/utils/__init__.py
+src/app/utils/gesture_detector.py
+src/weather_wizard.egg-info/PKG-INFO
+src/weather_wizard.egg-info/SOURCES.txt
+src/weather_wizard.egg-info/dependency_links.txt
+src/weather_wizard.egg-info/entry_points.txt
+src/weather_wizard.egg-info/requires.txt
+src/weather_wizard.egg-info/top_level.txt
