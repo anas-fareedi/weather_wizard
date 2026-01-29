@@ -1,29 +1,53 @@
-import mediapipe as mp
+try:
+    import mediapipe as mp
+    from mediapipe.tasks import python
+    from mediapipe.tasks.python import vision
+    MEDIAPIPE_AVAILABLE = True
+except ImportError as e:
+    MEDIAPIPE_AVAILABLE = False
+    print(f"MediaPipe import error: {e}")
+
 import numpy as np
 import cv2
 import random
 
-from app.utils.gesture_detector import GestureDetector
-from app.core.particle_system import Particle
+from utils.gesture_detector import GestureDetector
+from core.particle_system import Particle
 
 class WeatherWizard:
     def __init__(self):
         # Try to initialize MediaPipe for hand detection
-        try:
-            # MediaPipe hand detection (legacy API that still works)
-            self.mp_hands = mp.solutions.hands
-            self.mp_drawing = mp.solutions.drawing_utils
-            self.hands = self.mp_hands.Hands(
-                static_image_mode=False,
-                max_num_hands=1,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5
-            )
-            self.use_gestures = True
-            print("MediaPipe hand detection initialized successfully!")
-        except Exception as e:
-            print(f"MediaPipe initialization failed: {e}")
-            print("Falling back to keyboard-only controls")
+        if MEDIAPIPE_AVAILABLE:
+            try:
+                # Download hand landmarker model if needed
+                import urllib.request
+                import os
+                model_path = "hand_landmarker.task"
+                if not os.path.exists(model_path):
+                    print("Downloading hand detection model...")
+                    url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+                    urllib.request.urlretrieve(url, model_path)
+                    print("Model downloaded!")
+                
+                # Create HandLandmarker for new API
+                base_options = python.BaseOptions(model_asset_path=model_path)
+                options = vision.HandLandmarkerOptions(
+                    base_options=base_options,
+                    num_hands=1,
+                    min_hand_detection_confidence=0.5,
+                    min_hand_presence_confidence=0.5,
+                    min_tracking_confidence=0.5
+                )
+                self.detector = vision.HandLandmarker.create_from_options(options)
+                self.use_gestures = True
+                print("MediaPipe hand detection initialized successfully!")
+            except Exception as e:
+                print(f"MediaPipe initialization failed: {e}")
+                import traceback
+                traceback.print_exc()
+                print("Falling back to keyboard-only controls")
+                self.use_gestures = False
+        else:
             self.use_gestures = False
 
         print(" Attempt to open camera .") 
@@ -77,57 +101,110 @@ class WeatherWizard:
             
             # Process hand gestures if MediaPipe is available
             gesture_detected = None
+            x_pos = self.width // 2
+            fingers_count = 0
+            
             if self.use_gestures:
                 rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                results = self.hands.process(rgb_image)
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_image)
                 
-                if results.multi_hand_landmarks:
-                    for hand_landmarks in results.multi_hand_landmarks:
-                        # Draw hand landmarks
-                        self.mp_drawing.draw_landmarks(
-                            image, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
+                # Detect hands using new API
+                detection_result = self.detector.detect(mp_image)
+                
+                if detection_result.hand_landmarks:
+                    for hand_landmarks in detection_result.hand_landmarks:
+                        # Draw hand landmarks manually with OpenCV
+                        for landmark in hand_landmarks:
+                            x = int(landmark.x * self.width)
+                            y = int(landmark.y * self.height)
+                            cv2.circle(image, (x, y), 5, (0, 255, 0), -1)
+                        
+                        # Draw connections between landmarks
+                        connections = [
+                            (0, 1), (1, 2), (2, 3), (3, 4),  # Thumb
+                            (0, 5), (5, 6), (6, 7), (7, 8),  # Index
+                            (0, 9), (9, 10), (10, 11), (11, 12),  # Middle
+                            (0, 13), (13, 14), (14, 15), (15, 16),  # Ring
+                            (0, 17), (17, 18), (18, 19), (19, 20),  # Pinky
+                            (5, 9), (9, 13), (13, 17)  # Palm
+                        ]
+                        for connection in connections:
+                            start_idx, end_idx = connection
+                            start = hand_landmarks[start_idx]
+                            end = hand_landmarks[end_idx]
+                            start_point = (int(start.x * self.width), int(start.y * self.height))
+                            end_point = (int(end.x * self.width), int(end.y * self.height))
+                            cv2.line(image, start_point, end_point, (0, 255, 0), 2)
                         
                         # Detect gesture
                         gesture_detected = self.gesture_detector.detect_gestures(hand_landmarks)
                         
-                        # Get finger tip position for particle placement
-                        index_tip = hand_landmarks.landmark[self.mp_hands.HandLandmark.INDEX_FINGER_TIP]
+                        # Get finger tip position for particle placement (index finger tip is landmark 8)
+                        index_tip = hand_landmarks[8]
                         x_pos = int(index_tip.x * self.width)
+                        
+                        # Count fingers manually (excluding thumb for gesture detection)
+                        fingers_count = 0
+                        if hand_landmarks[8].y < hand_landmarks[6].y:  # Index
+                            fingers_count += 1
+                        if hand_landmarks[12].y < hand_landmarks[10].y:  # Middle
+                            fingers_count += 1
+                        if hand_landmarks[16].y < hand_landmarks[14].y:  # Ring
+                            fingers_count += 1
+                        if hand_landmarks[20].y < hand_landmarks[18].y:  # Little
+                            fingers_count += 1
+                            
+                        # Show finger count on screen for debugging
+                        cv2.putText(image, f"Fingers: {fingers_count}", (10, 110), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
             
             # Handle keyboard input for effects
             key = cv2.waitKey(1) & 0xFF
             
-            # Process gesture or keyboard input
-            effect_triggered = None
-            particle_x = None
+            # Reset all effects first
+            rain_active = False
+            snow_active = False
+            lightning_active = False
+            particle_x = self.width // 2
             
-            if gesture_detected == "LIGHTNING" or key == ord('1'):
-                effect_triggered = "LIGHTNING"
-                lightning_active = not lightning_active
-                rain_active = False
-                snow_active = False
-                particle_x = x_pos if self.use_gestures and gesture_detected else self.width // 2
-                        
-            elif gesture_detected == "SNOW" or key == ord('2'):
-                effect_triggered = "SNOW"
-                snow_active = not snow_active
-                rain_active = False
-                lightning_active = False
-                particle_x = x_pos if self.use_gestures and gesture_detected else self.width // 2
-                        
-            elif gesture_detected == "RAIN" or key == ord('3'):
-                effect_triggered = "RAIN"
-                rain_active = not rain_active
-                snow_active = False
-                lightning_active = False
-                particle_x = x_pos if self.use_gestures and gesture_detected else self.width // 2
+            # Process gesture - holding fingers activates the effect
+            if gesture_detected == "LIGHTNING":
+                print("Activating LIGHTNING from gesture")
+                lightning_active = True
+                particle_x = x_pos
+            elif gesture_detected == "SNOW":
+                print("Activating SNOW from gesture")
+                snow_active = True
+                particle_x = x_pos
+            elif gesture_detected == "RAIN":
+                print("Activating RAIN from gesture")
+                rain_active = True
+                particle_x = x_pos
             
-            elif key == 27:  # ESC key
+            # Keyboard fallback (only if no gesture detected)
+            if not gesture_detected:
+                if key == ord('1'):
+                    print("Activating LIGHTNING from keyboard")
+                    lightning_active = True
+                elif key == ord('2'):
+                    print("Activating SNOW from keyboard")
+                    snow_active = True
+                elif key == ord('3'):
+                    print("Activating RAIN from keyboard")
+                    rain_active = True
+            
+            if key == 27:  # ESC key always works
                 break
             
             # Update current effect
-            if effect_triggered:
-                self.current_effect = effect_triggered if (rain_active or snow_active or lightning_active) else None
+            if lightning_active:
+                self.current_effect = "LIGHTNING"
+            elif snow_active:
+                self.current_effect = "SNOW"
+            elif rain_active:
+                self.current_effect = "RAIN"
+            else:
+                self.current_effect = None
             
             # Continuously generate particles for active effects
             if rain_active and len(self.particles) < self.max_particles:

@@ -1,4 +1,4 @@
-from app.core.weather_wizard import WeatherWizard
+from core.weather_wizard import WeatherWizard
 
 def main():
     try:
